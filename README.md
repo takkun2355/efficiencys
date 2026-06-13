@@ -21,15 +21,21 @@ Windowsプロセスの効率モードをGUIで制御するツール
 - Python 3.10+
 - psutil
 
+## 作成環境
+
+- Python 3.11, 3.13, 3.14
+- psutil
+- uv
+
 インストール：
 
-```python
+```powershell
 pip install psutil
 ```
 
 uv使用時
 
-```python
+```powershell
 uv add psutil
 ```
 
@@ -37,19 +43,19 @@ uv add psutil
 
 ## 起動方法
 
-```python
+```powershell
 python main.py
 ```
 
 uv使用時：
 
-```python
+```powershell
 uv run python main.py
 ```
 
 または
 
-```python
+```powershell
 uv run main.py
 ```
 

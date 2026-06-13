@@ -45,14 +45,34 @@ class App:
         self.root = root
         self.root.title("プロセス管理ツール")
         self.root.geometry("900x600")
+        
+        tree_frame = tk.Frame(root)
+        tree_frame.pack(fill=tk.BOTH, expand=True)
 
-        self.tree = ttk.Treeview(root, columns=("pid", "name"), show="headings")
+        scroll_y = ttk.Scrollbar(tree_frame, orient="vertical")
+        scroll_y.pack(side=tk.RIGHT, fill=tk.Y)
+
+        scroll_x = ttk.Scrollbar(tree_frame, orient="horizontal")
+        scroll_x.pack(side=tk.BOTTOM, fill=tk.X)
+
+        self.tree = ttk.Treeview(
+            tree_frame,
+            columns=("pid", "name"),
+            show="headings",
+            yscrollcommand=scroll_y.set,
+            xscrollcommand=scroll_x.set
+        )
+
         self.tree.heading("pid", text="PID")
         self.tree.heading("name", text="プロセス名")
-        self.tree.pack(fill=tk.BOTH, expand=True)
 
-        frame = tk.Frame(root)
-        frame.pack(fill=tk.X)
+        self.tree.column("pid", width=100, anchor="center")
+        self.tree.column("name", width=600)
+
+        self.tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        scroll_y.config(command=self.tree.yview)
+        scroll_x.config(command=self.tree.xview)
 
         frame = tk.Frame(root)
         frame.pack(fill=tk.X)

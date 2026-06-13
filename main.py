@@ -4,7 +4,10 @@ import ctypes
 import tkinter as tk
 from tkinter import ttk
 import psutil
+import threading
 
+import efficiency_all
+import efficiency_all_clear
 import efficiency_selection as eff
 
 
@@ -51,9 +54,32 @@ class App:
         frame = tk.Frame(root)
         frame.pack(fill=tk.X)
 
-        tk.Button(frame, text="更新", command=self.refresh).pack(side=tk.LEFT)
-        tk.Button(frame, text="効率モード適用", command=self.apply_selected).pack(side=tk.LEFT)
+        frame = tk.Frame(root)
+        frame.pack(fill=tk.X)
 
+        tk.Button(
+            frame,
+            text="更新",
+            command=self.refresh
+        ).pack(side=tk.LEFT, padx=5)
+
+        tk.Button(
+            frame,
+            text="選択プロセス効率モードON",
+            command=self.apply_selected
+        ).pack(side=tk.LEFT, padx=5)
+
+        tk.Button(
+            frame,
+            text="全プロセス効率モードON",
+            command=self.apply_all
+        ).pack(side=tk.LEFT, padx=5)
+
+        tk.Button(
+            frame,
+            text="全プロセス効率モード解除",
+            command=self.clear_all
+        ).pack(side=tk.LEFT, padx=5)
         self.refresh()
 
     def refresh(self):
@@ -81,6 +107,22 @@ class App:
 
         ok, msg = eff.set_efficiency(pid)
         log(f"PID {pid} -> {msg}")
+        
+    def apply_all(self):
+        log("全プロセス効率モードON開始")
+        threading.Thread(
+            target=efficiency_all.main,
+            daemon=True
+        ).start()
+
+
+    def clear_all(self):
+        log("全プロセス効率モード解除開始")
+        threading.Thread(
+            target=efficiency_all_clear.main,
+            daemon=True
+        ).start()
+    
 
 
 # =========================

@@ -1,99 +1,142 @@
-#effeciency_all.py
-import sys
 import ctypes
-import tkinter as tk
-from tkinter import ttk
+import sys
+import subprocess
+from typing import Set
+
 import psutil
 
-import efficiency_selection as eff
+# Win32 constants
+PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+PROCESS_SET_INFORMATION = 0x0200
 
+ProcessPowerThrottling = 0
+PROCESS_POWER_THROTTLING_CURRENT_VERSION = 1
+PROCESS_POWER_THROTTLING_EXECUTION_SPEED = 0x1
 
-# =========================
-# 管理者チェック
-# =========================
+kernel32 = ctypes.windll.kernel32
 
-def is_admin():
+class PROCESS_POWER_THROTTLING_STATE(ctypes.Structure):
+    _fields_ = [
+        ("Version", ctypes.c_uint32),
+        ("ControlMask", ctypes.c_uint32),
+        ("StateMask", ctypes.c_uint32),
+    ]
+
+SYSTEM_PROCESS_NAMES = {
+    "System",
+    "System Idle Process",
+    "Registry",
+    "smss.exe",
+    "csrss.exe",
+    "wininit.exe",
+    "winlogon.exe",
+    "services.exe",
+    "lsass.exe",
+    "svchost.exe",
+    "fontdrvhost.exe",
+    "dwm.exe",
+    "taskmgr.exe",
+    "memcompression",
+    "MemCompression",
+    "ShellHost.exe",
+    "ShellExperienceHost.exe",
+    "StartMenuExperienceHost.exe",
+    "RuntimeBroker.exe",
+    "SearchHost.exe",
+    "SearchIndexer.exe",
+}
+
+def get_service_pids() -> Set[int]:
+    """
+    稼働中の Windows サービスの ProcessId を PowerShell 経由で集める。
+    """
+    ps = r"""
+    Get-CimInstance Win32_Service |
+      Where-Object { $_.State -eq 'Running' -and $_.ProcessId -gt 0 } |
+      Select-Object -ExpandProperty ProcessId
+    """
     try:
-        return ctypes.windll.shell32.IsUserAnAdmin()
-    except:
-        return False
+        r = subprocess.run(
+            ["powershell", "-NoProfile", "-Command", ps],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=True,
+        )
+    except Exception as e:
+        print(f"[WARN] サービスPID取得失敗: {e}")
+        return set()
 
+    pids = set()
+    for line in r.stdout.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            pids.add(int(line))
+        except ValueError:
+            pass
+    return pids
 
-def relaunch_as_admin():
-    ctypes.windll.shell32.ShellExecuteW(
-        None, "runas", sys.executable, " ".join(sys.argv), None, 1
+def set_efficiency_mode(pid: int) -> tuple[bool, str]:
+    handle = kernel32.OpenProcess(
+        PROCESS_SET_INFORMATION | PROCESS_QUERY_LIMITED_INFORMATION,
+        False,
+        pid,
     )
+    if not handle:
+        return False, f"OpenProcess failed ({ctypes.get_last_error()})"
 
+    try:
+        state = PROCESS_POWER_THROTTLING_STATE()
+        state.Version = PROCESS_POWER_THROTTLING_CURRENT_VERSION
+        state.ControlMask = PROCESS_POWER_THROTTLING_EXECUTION_SPEED
+        state.StateMask = PROCESS_POWER_THROTTLING_EXECUTION_SPEED
 
-# =========================
-# ログ（uvでも見えるように強制flush）
-# =========================
+        ok = kernel32.SetProcessInformation(
+            handle,
+            ProcessPowerThrottling,
+            ctypes.byref(state),
+            ctypes.sizeof(state),
+        )
+        if not ok:
+            return False, f"SetProcessInformation failed ({ctypes.get_last_error()})"
+        return True, "OK"
+    finally:
+        kernel32.CloseHandle(handle)
 
-def log(msg):
-    print(f"[ログ] {msg}", flush=True)
+def main():
+    if sys.platform != "win32":
+        print("Windows専用")
+        return
 
+    service_pids = get_service_pids()
 
-# =========================
-# GUI
-# =========================
+    for proc in psutil.process_iter(["pid", "name"]):
+        pid = proc.info["pid"]
+        name = proc.info["name"] or ""
 
-class App:
-    def __init__(self, root):
-        self.root = root
-        self.root.title("プロセス管理ツール")
-        self.root.geometry("900x600")
+        if pid in service_pids:
+            print(f"SKIP PID={pid:<6} {name:<35} service")
+            continue
 
-        self.tree = ttk.Treeview(root, columns=("pid", "name"), show="headings")
-        self.tree.heading("pid", text="PID")
-        self.tree.heading("name", text="プロセス名")
-        self.tree.pack(fill=tk.BOTH, expand=True)
+        if name in SYSTEM_PROCESS_NAMES:
+            print(f"SKIP PID={pid:<6} {name:<35} system/core")
+            continue
 
-        frame = tk.Frame(root)
-        frame.pack(fill=tk.X)
-
-        tk.Button(frame, text="更新", command=self.refresh).pack(side=tk.LEFT)
-        tk.Button(frame, text="効率モード適用", command=self.apply_selected).pack(side=tk.LEFT)
-
-        self.refresh()
-
-    def refresh(self):
-        log("プロセス更新")
-        for i in self.tree.get_children():
-            self.tree.delete(i)
-
-        for p in psutil.process_iter(["pid", "name"]):
-            try:
-                self.tree.insert("", "end", values=(p.info["pid"], p.info["name"]))
-            except:
-                pass
-
-    def get_selected_pid(self):
-        item = self.tree.focus()
-        if not item:
-            return None
-        return int(self.tree.item(item)["values"][0])
-
-    def apply_selected(self):
-        pid = self.get_selected_pid()
-        if not pid:
-            log("未選択")
-            return
-
-        ok, msg = eff.set_efficiency(pid)
-        log(f"PID {pid} -> {msg}")
-
-
-# =========================
-# main
-# =========================
+        try:
+            ok, msg = set_efficiency_mode(pid)
+            if ok:
+                print(f"ON   PID={pid:<6} {name:<35} efficiency")
+            else:
+                print(f"FAIL PID={pid:<6} {name:<35} {msg}")
+        except psutil.NoSuchProcess:
+            continue
+        except psutil.AccessDenied:
+            print(f"SKIP PID={pid:<6} {name:<35} access denied")
+        except Exception as e:
+            print(f"FAIL PID={pid:<6} {name:<35} {e}")
 
 if __name__ == "__main__":
-
-    if not is_admin():
-        log("管理者権限が必要 → 再起動")
-        relaunch_as_admin()
-        sys.exit()
-
-    root = tk.Tk()
-    App(root)
-    root.mainloop()
+    main()

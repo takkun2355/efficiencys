@@ -63,10 +63,29 @@ class App:
             xscrollcommand=scroll_x.set
         )
 
-        self.tree.heading("pid", text="PID")
-        self.tree.heading("name", text="プロセス名")
-        self.tree.heading("cpu", text="CPU %")
-        self.tree.heading("memory", text="メモリ MB")
+        self.tree.heading(
+            "pid",
+            text="PID",
+            command=lambda: self.sort_column("pid")
+        )
+
+        self.tree.heading(
+            "name",
+            text="プロセス名",
+            command=lambda: self.sort_column("name")
+        )
+
+        self.tree.heading(
+            "cpu",
+            text="CPU %",
+            command=lambda: self.sort_column("cpu")
+        )
+
+        self.tree.heading(
+            "memory",
+            text="メモリ MB",
+            command=lambda: self.sort_column("memory")
+        )
 
         self.tree.column("pid", width=80, anchor="center")
         self.tree.column("name", width=350)
@@ -108,14 +127,58 @@ class App:
 
     def refresh(self):
         log("プロセス更新")
-        for i in self.tree.get_children():
-            self.tree.delete(i)
 
-        for p in psutil.process_iter(["pid", "name"]):
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+
+        for p in psutil.process_iter(
+            ["pid", "name", "memory_info", "cpu_percent"]
+        ):
             try:
-                self.tree.insert("", "end", values=(p.info["pid"], p.info["name"]))
-            except:
+                mem = p.info["memory_info"].rss / 1024 / 1024
+                
+                self.tree.insert(
+                    "",
+                    "end",
+                    values=(
+                        p.info["pid"],
+                        p.info["name"],
+                        f"{p.cpu_percent():.1f}",
+                        f"{mem:.1f}",
+                    )
+                )
+
+            except (
+                psutil.NoSuchProcess,
+                psutil.AccessDenied,
+                psutil.ZombieProcess,
+            ):
                 pass
+            
+    def sort_column(self, col, reverse=False):
+        data = [
+            (self.tree.set(item, col), item)
+            for item in self.tree.get_children("")
+        ]
+
+        if col in ("pid", "cpu", "memory"):
+            data.sort(
+                key=lambda x: float(x[0]) if x[0] else 0,
+                reverse=reverse
+            )
+        else:
+            data.sort(
+                key=lambda x: x[0].lower(),
+                reverse=reverse
+            )
+
+        for index, (_, item) in enumerate(data):
+            self.tree.move(item, "", index)
+
+        self.tree.heading(
+            col,
+            command=lambda: self.sort_column(col, not reverse)
+        )
 
     def get_selected_pid(self):
         item = self.tree.focus()
